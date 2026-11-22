@@ -1,0 +1,303 @@
+# Experiment 10: SQL Query Optimization and Performance Tuning
+
+## Aim
+
+To identify inefficient SQL query patterns and improve query performance using index design, query rewriting, and execution-plan analysis.
+
+## Software Required
+
+- MySQL Server
+- MySQL Workbench or another SQL client
+
+## Description
+
+This experiment uses the `OptimizationDB_Exp10` database and two related tables:
+
+| Table | Description |
+|---|---|
+| `Customers` | Stores customer details and account status |
+| `Orders` | Stores customer orders, amounts, categories, and status |
+| `Query_Benchmark` | Stores benchmark results for different query versions |
+
+The generated dataset contains:
+
+- 10,000 customers
+- 20,000 orders
+
+The experiment compares five inefficient queries with optimized versions. It also uses indexes, `EXPLAIN`, `EXPLAIN ANALYZE`, and a benchmark procedure.
+
+## Objectives
+
+- Identify inefficient SQL expressions and structures
+- Avoid applying functions to indexed columns
+- Replace leading-wildcard searches with equality searches
+- Replace correlated subqueries with joins or pre-aggregated data
+- Select only required columns
+- Replace `NOT IN` subqueries with `NOT EXISTS`
+- Create appropriate indexes
+- Compare execution plans and benchmark timing
+
+## Table Structure
+
+### Customers
+
+| Column | Data Type |
+|---|---|
+| `Cust_ID` | INT, primary key |
+| `Cust_Name` | VARCHAR(50) |
+| `Email` | VARCHAR(80) |
+| `City` | VARCHAR(30) |
+| `Signup_Date` | DATE |
+| `Status` | VARCHAR(10) |
+
+### Orders
+
+| Column | Data Type |
+|---|---|
+| `Order_ID` | INT, primary key, AUTO_INCREMENT |
+| `Cust_ID` | INT, NOT NULL |
+| `Order_Date` | DATE |
+| `Amount` | DECIMAL(10,2) |
+| `Product_Category` | VARCHAR(30) |
+| `Order_Status` | VARCHAR(12) |
+
+### Query_Benchmark
+
+| Column | Data Type |
+|---|---|
+| `Run_ID` | INT, primary key, AUTO_INCREMENT |
+| `Query_No` | INT |
+| `Version` | VARCHAR(10) |
+| `Loops` | INT |
+| `Total_ms` | DECIMAL(12,3) |
+| `Avg_ms` | DECIMAL(12,3) |
+
+## Benchmark Procedure
+
+The `run_query` procedure executes a selected query repeatedly and records its total and average execution time.
+
+```sql
+CALL run_query(query_number, 'BEFORE', loops);
+CALL run_query(query_number, 'AFTER', loops);
+```
+
+Before/after benchmark values are stored in `Query_Benchmark`.
+
+## Query 1: Date Range Optimization
+
+Inefficient version:
+
+```sql
+SELECT Order_ID, Cust_ID, Amount
+FROM Orders
+WHERE YEAR(Order_Date) = 2025
+  AND MONTH(Order_Date) = 3;
+```
+
+Applying `YEAR()` and `MONTH()` to `Order_Date` makes the condition difficult for an index to use.
+
+Optimized version:
+
+```sql
+SELECT Order_ID, Cust_ID, Amount
+FROM Orders
+WHERE Order_Date >= '2025-03-01'
+  AND Order_Date < '2025-04-01';
+```
+
+The optimized date range allows direct index-based access.
+
+## Query 2: Avoid Leading-Wildcard LIKE
+
+Inefficient version:
+
+```sql
+SELECT Cust_ID, Cust_Name, Email
+FROM Customers
+WHERE Email LIKE '%1234@example.com';
+```
+
+A leading wildcard prevents normal use of an index.
+
+Optimized version:
+
+```sql
+SELECT Cust_ID, Cust_Name, Email
+FROM Customers
+WHERE Email = 'user1234@example.com';
+```
+
+The equality condition can use `idx_cust_email`.
+
+## Query 3: Replace a Correlated Subquery
+
+Inefficient version:
+
+```sql
+SELECT c.Cust_ID,
+       c.Cust_Name,
+       (SELECT SUM(o.Amount)
+        FROM Orders o
+        WHERE o.Cust_ID = c.Cust_ID) AS Total_Spent
+FROM Customers c
+WHERE c.City = 'Kanpur';
+```
+
+The subquery may execute once for every matching customer.
+
+Optimized version:
+
+```sql
+SELECT c.Cust_ID, c.Cust_Name, t.Total_Spent
+FROM Customers c
+LEFT JOIN (
+    SELECT Cust_ID, SUM(Amount) AS Total_Spent
+    FROM Orders
+    GROUP BY Cust_ID
+) t ON t.Cust_ID = c.Cust_ID
+WHERE c.City = 'Kanpur';
+```
+
+The order totals are calculated once and joined by customer ID.
+
+## Query 4: Reduce Columns and Sorting Cost
+
+Inefficient version:
+
+```sql
+SELECT *
+FROM Orders
+WHERE Order_Status = 'PENDING'
+ORDER BY Order_Date DESC
+LIMIT 10;
+```
+
+Selecting `*` retrieves unnecessary columns.
+
+Optimized version:
+
+```sql
+SELECT Order_ID, Cust_ID, Order_Date, Amount
+FROM Orders
+WHERE Order_Status = 'PENDING'
+ORDER BY Order_Date DESC
+LIMIT 10;
+```
+
+The `idx_orders_status_date` composite index supports filtering and ordering.
+
+## Query 5: Replace NOT IN with NOT EXISTS
+
+Inefficient version:
+
+```sql
+SELECT Cust_ID, Cust_Name
+FROM Customers
+WHERE Cust_ID NOT IN (
+    SELECT Cust_ID
+    FROM Orders
+    WHERE Order_Status = 'CANCELLED'
+);
+```
+
+Optimized version:
+
+```sql
+SELECT c.Cust_ID, c.Cust_Name
+FROM Customers c
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM Orders o
+    WHERE o.Cust_ID = c.Cust_ID
+      AND o.Order_Status = 'CANCELLED'
+);
+```
+
+`NOT EXISTS` avoids issues caused by `NULL` values in `NOT IN` results and can use the customer/status index.
+
+## Indexes
+
+The script creates the following indexes:
+
+```sql
+CREATE INDEX idx_orders_date_cover
+    ON Orders (Order_Date, Cust_ID, Amount);
+
+CREATE INDEX idx_cust_email
+    ON Customers (Email);
+
+CREATE INDEX idx_cust_city
+    ON Customers (City);
+
+CREATE INDEX idx_orders_cust_amt
+    ON Orders (Cust_ID, Amount);
+
+CREATE INDEX idx_orders_status_date
+    ON Orders (Order_Status, Order_Date);
+
+CREATE INDEX idx_orders_cust_status
+    ON Orders (Cust_ID, Order_Status);
+```
+
+`ANALYZE TABLE` updates MySQL's table statistics after adding the indexes.
+
+## Execution Plan Analysis
+
+Use `EXPLAIN` to inspect access methods and possible index usage:
+
+```sql
+EXPLAIN
+SELECT *
+FROM Orders
+WHERE YEAR(Order_Date) = 2025;
+```
+
+Use `EXPLAIN ANALYZE` to view actual execution behavior:
+
+```sql
+EXPLAIN ANALYZE
+SELECT c.Cust_ID,
+       c.Cust_Name,
+       (SELECT SUM(o.Amount)
+        FROM Orders o
+        WHERE o.Cust_ID = c.Cust_ID) AS Total_Spent
+FROM Customers c
+WHERE c.City = 'Kanpur';
+```
+
+## Before/After Comparison
+
+```sql
+SELECT Query_No,
+       ROUND(MAX(CASE WHEN Version = 'BEFORE' THEN Avg_ms END), 3) AS Before_ms,
+       ROUND(MAX(CASE WHEN Version = 'AFTER' THEN Avg_ms END), 3) AS After_ms,
+       ROUND(MAX(CASE WHEN Version = 'BEFORE' THEN Avg_ms END) /
+             MAX(CASE WHEN Version = 'AFTER' THEN Avg_ms END), 1) AS Speedup_x
+FROM Query_Benchmark
+GROUP BY Query_No
+ORDER BY Query_No;
+```
+
+This result compares average execution time and calculates the speed-up factor for each query.
+
+## How to Run
+
+1. Open MySQL Workbench.
+2. Open `Exp 10.sql`.
+3. Execute the script completely.
+4. Observe the 10,000-customer and 20,000-order dataset.
+5. Review the five `EXPLAIN` results before optimization.
+6. Wait for indexes and optimized queries to execute.
+7. Review the final before/after benchmark comparison.
+
+## Observation
+
+Functions on columns, leading wildcards, correlated subqueries, `SELECT *`, and `NOT IN` subqueries can increase query cost. Rewriting conditions and structures, adding suitable indexes, and selecting only required columns generally improves execution plans and benchmark results.
+
+## Result
+
+The experiment successfully compared inefficient and optimized SQL queries. Optimized queries used date ranges, exact email lookup, joined pre-aggregated totals, required-column projection, and `NOT EXISTS`. Suitable indexes were added for the filtered and joined columns.
+
+## Conclusion
+
+Effective SQL optimization combines good query structure with appropriate indexes. Execution plans and benchmarks help verify whether a rewrite or index actually improves performance. Indexes must be selected carefully because they require additional storage and maintenance.

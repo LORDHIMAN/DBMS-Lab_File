@@ -1,0 +1,191 @@
+# Experiment 5: Views, View Updatability, and Recursive CTEs
+
+## Aim
+
+To create SQL views for summarizing department salaries and displaying employee-manager relationships, test view updatability, and use a recursive common table expression (CTE) to display organizational reporting chains.
+
+## Software Required
+
+- MySQL Server
+- MySQL Workbench or another SQL client
+
+## Description
+
+This experiment uses the `CompanyDB_Exp05` database containing departments and employees. The `Employee` table includes a `Manager_ID` self-reference, allowing the reporting structure to be represented within the same table.
+
+The database contains:
+
+- 5 departments
+- 30 employees
+- Department managers
+- Employee-manager reporting relationships
+
+## Objectives
+
+- Create a department salary summary view
+- Create an employee hierarchy view
+- Understand view updatability rules
+- Modify a base table and observe changes in views
+- Demonstrate that aggregate views are generally not updatable
+- Use a recursive CTE to traverse an organizational hierarchy
+
+## Table Structure
+
+### Department
+
+| Column | Data Type | Constraint |
+|---|---|---|
+| `Dept_ID` | INT | Primary key |
+| `Dept_Name` | VARCHAR(100) | NOT NULL |
+
+### Employee
+
+| Column | Data Type | Constraint |
+|---|---|---|
+| `Emp_ID` | INT | Primary key |
+| `Emp_Name` | VARCHAR(100) | NOT NULL |
+| `Job_Title` | VARCHAR(100) | Nullable |
+| `Salary` | DECIMAL(10,2) | Nullable |
+| `Dept_ID` | INT | Foreign key referencing `Department` |
+| `Manager_ID` | INT | Self-referencing foreign key referencing `Employee` |
+
+## SQL Views
+
+### 1. Department Salary Summary View
+
+This aggregate view displays employee counts and salary statistics for each department.
+
+```sql
+CREATE VIEW Department_Salary_Summary AS
+SELECT
+    D.Dept_ID,
+    D.Dept_Name,
+    COUNT(E.Emp_ID) AS Total_Employees,
+    AVG(E.Salary) AS Average_Salary,
+    MAX(E.Salary) AS Maximum_Salary,
+    MIN(E.Salary) AS Minimum_Salary
+FROM Department D
+LEFT JOIN Employee E
+    ON D.Dept_ID = E.Dept_ID
+GROUP BY D.Dept_ID, D.Dept_Name;
+```
+
+Display the view:
+
+```sql
+SELECT * FROM Department_Salary_Summary;
+```
+
+### 2. Employee Hierarchy View
+
+This view uses a self-join to display each employee with the name of the employee's manager.
+
+```sql
+CREATE VIEW Employee_Hierarchy AS
+SELECT
+    E.Emp_ID,
+    E.Emp_Name,
+    E.Job_Title,
+    E.Salary,
+    E.Manager_ID,
+    M.Emp_Name AS Manager_Name
+FROM Employee E
+LEFT JOIN Employee M
+    ON E.Manager_ID = M.Emp_ID;
+```
+
+Display the view:
+
+```sql
+SELECT * FROM Employee_Hierarchy;
+```
+
+## View Updatability
+
+Views containing aggregate functions or `GROUP BY` clauses are not generally updatable. The `Department_Salary_Summary` view cannot directly update values such as `Average_Salary`.
+
+Changing the base table updates values reflected in views:
+
+```sql
+UPDATE Employee
+SET Salary = 63500.00
+WHERE Emp_ID = 1;
+```
+
+The change can be verified using the base table and views:
+
+```sql
+SELECT Emp_ID, Emp_Name, Salary
+FROM Employee
+WHERE Emp_ID = 1;
+
+SELECT * FROM Department_Salary_Summary
+WHERE Dept_ID = 1;
+
+SELECT * FROM Employee_Hierarchy
+WHERE Emp_ID = 1;
+```
+
+An attempted update of `Department_Salary_Summary.Average_Salary` should fail with MySQL Error 1288 because aggregate views are not updatable.
+
+## Recursive CTE
+
+A recursive CTE consists of an anchor member and a recursive member:
+
+- The anchor member selects root managers whose `Manager_ID` is `NULL`.
+- The recursive member joins employees to the previously discovered employees by matching `Manager_ID` with `Emp_ID`.
+- `Level` indicates organizational depth.
+
+```sql
+WITH RECURSIVE Employee_Chain AS
+(
+    SELECT
+        Emp_ID,
+        Emp_Name,
+        Job_Title,
+        Manager_ID,
+        1 AS Level
+    FROM Employee
+    WHERE Manager_ID IS NULL
+
+    UNION ALL
+
+    SELECT
+        E.Emp_ID,
+        E.Emp_Name,
+        E.Job_Title,
+        E.Manager_ID,
+        EC.Level + 1
+    FROM Employee E
+    INNER JOIN Employee_Chain EC
+        ON E.Manager_ID = EC.Emp_ID
+)
+SELECT
+    Emp_ID,
+    Emp_Name,
+    Job_Title,
+    Manager_ID,
+    Level
+FROM Employee_Chain
+ORDER BY Level, Emp_ID;
+```
+
+## How to Run
+
+1. Open MySQL Workbench.
+2. Open `Exp 5.sql`.
+3. Execute the complete script.
+4. Verify the `CompanyDB_Exp05` database and both views.
+5. Run each view, updatability demonstration, and recursive CTE section.
+
+## Observation
+
+Views provide reusable query results without storing duplicate table data. Aggregate views summarize the base data and are generally read-only. Simple views and their underlying tables remain synchronized. A recursive CTE can traverse manager-employee relationships and calculate hierarchy levels.
+
+## Result
+
+The department salary summary view and employee hierarchy view were successfully created. Base-table updates were reflected in the views. The recursive CTE successfully produced reporting chains and organizational levels.
+
+## Conclusion
+
+Views simplify data access and provide an abstraction over base tables, while updatability depends on the view's structure. Recursive CTEs provide an effective method for traversing hierarchical data stored using self-referencing keys.

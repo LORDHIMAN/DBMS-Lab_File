@@ -1,0 +1,225 @@
+# Experiment 9: Database Indexing and Query Performance
+
+## Aim
+
+To analyze the effect of single-column and composite indexes on SQL query execution, query plans, and benchmark performance using a railway booking database.
+
+## Software Required
+
+- MySQL Server
+- MySQL Workbench or another SQL client
+
+## Description
+
+This experiment uses the `RailwayDB_Exp09` database and a large `Railway_Booking` table. A recursive CTE generates approximately 10,000 railway booking records.
+
+The experiment measures query performance:
+
+- Before creating an index
+- After creating a single-column index
+- After creating a composite index
+
+It also uses `EXPLAIN`, `EXPLAIN ANALYZE`, and a stored procedure to compare execution behavior.
+
+## Objectives
+
+- Generate a dataset containing at least 5,000 records
+- Analyze queries before and after indexing
+- Create a single-column index
+- Create a composite index
+- Compare index use using `EXPLAIN`
+- Benchmark repeated queries
+- Demonstrate composite-index prefix behavior
+- Check index storage and table storage usage
+
+## Table Structure
+
+### Railway_Booking
+
+| Column | Data Type | Constraint |
+|---|---|---|
+| `Booking_ID` | INT | Primary key, AUTO_INCREMENT |
+| `PNR_No` | CHAR(10) | NOT NULL |
+| `Passenger_Name` | VARCHAR(50) | Nullable |
+| `Age` | INT | Nullable |
+| `Train_No` | INT | NOT NULL |
+| `From_Station` | VARCHAR(30) | Nullable |
+| `To_Station` | VARCHAR(30) | Nullable |
+| `Journey_Date` | DATE | NOT NULL |
+| `Class_Type` | CHAR(3) | NOT NULL |
+| `Seat_No` | INT | Nullable |
+| `Fare` | DECIMAL(8,2) | Nullable |
+| `Booking_Status` | VARCHAR(10) | Nullable |
+
+The table uses the InnoDB storage engine.
+
+## Data Generation
+
+The script uses a recursive CTE to generate 10,000 booking records.
+
+```sql
+WITH RECURSIVE seq AS (
+    SELECT 1 AS n
+    UNION ALL
+    SELECT n + 1
+    FROM seq
+    WHERE n < 10000
+)
+SELECT LPAD(n, 10, '0'),
+       CONCAT('Passenger_', n),
+       ...
+FROM seq;
+```
+
+The session recursion limit is increased to 20,000 before insertion.
+
+Verify the record count:
+
+```sql
+SELECT COUNT(*) AS Total_Records
+FROM Railway_Booking;
+```
+
+## Benchmark Procedure
+
+The `run_benchmark` stored procedure repeatedly executes one of two queries and reports total execution time in milliseconds.
+
+```sql
+CALL run_benchmark(1, 500);
+CALL run_benchmark(2, 500);
+```
+
+- Query ID 1 searches by `Train_No`
+- Query ID 2 searches by `Train_No`, `Journey_Date`, and `Class_Type`
+
+## Query 1
+
+This query searches by train number:
+
+```sql
+SELECT *
+FROM Railway_Booking
+WHERE Train_No = 12010;
+```
+
+Before indexing, MySQL is expected to use a full table scan:
+
+```sql
+EXPLAIN
+SELECT *
+FROM Railway_Booking
+WHERE Train_No = 12010;
+```
+
+The execution plan is expected to show `type = ALL`, indicating that the entire table is scanned.
+
+## Query 2
+
+This query filters by train number, journey date, and class:
+
+```sql
+SELECT *
+FROM Railway_Booking
+WHERE Train_No = 12010
+  AND Journey_Date = '2026-11-11'
+  AND Class_Type = '3A';
+```
+
+Before indexing, this query is also expected to perform a full table scan.
+
+## Single-Column Index
+
+Create an index on `Train_No`:
+
+```sql
+CREATE INDEX idx_train
+ON Railway_Booking (Train_No);
+```
+
+For Query 1, the execution plan is expected to show:
+
+- `type = ref`
+- `key = idx_train`
+
+For Query 2, the single-column index can find matching train numbers, but MySQL must filter the journey date and class against those matching rows.
+
+## Composite Index
+
+Create a composite index containing the three columns used by Query 2:
+
+```sql
+CREATE INDEX idx_train_date_class
+ON Railway_Booking (Train_No, Journey_Date, Class_Type);
+```
+
+The execution plan for Query 2 is expected to use `idx_train_date_class` because all filtering conditions match the index prefix.
+
+Use `EXPLAIN ANALYZE` for an execution summary:
+
+```sql
+EXPLAIN ANALYZE
+SELECT *
+FROM Railway_Booking
+WHERE Train_No = 12010
+  AND Journey_Date = '2026-11-11'
+  AND Class_Type = '3A';
+```
+
+## Composite Index Left-Most Prefix Rule
+
+The composite index begins with `Train_No`, followed by `Journey_Date`, and finally `Class_Type`.
+
+The following query searches only `Journey_Date`:
+
+```sql
+EXPLAIN
+SELECT *
+FROM Railway_Booking
+WHERE Journey_Date = '2026-11-11';
+```
+
+This query is not expected to use the composite index effectively because `Train_No`, the left-most column, is not specified.
+
+## Index and Storage Analysis
+
+Display all indexes on the table:
+
+```sql
+SHOW INDEX FROM Railway_Booking;
+```
+
+Display data and index storage usage:
+
+```sql
+SELECT TABLE_NAME,
+       ROUND(DATA_LENGTH / 1024) AS Data_KB,
+       ROUND(INDEX_LENGTH / 1024) AS Index_KB
+FROM information_schema.TABLES
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME = 'Railway_Booking';
+```
+
+Indexes improve lookup performance but require additional disk space and must be maintained during inserts and updates.
+
+## How to Run
+
+1. Open MySQL Workbench.
+2. Open `EXP 9.SQL`.
+3. Execute the script.
+4. Observe the record count.
+5. Compare `EXPLAIN` and benchmark results before indexing.
+6. Add the single-column index and repeat the benchmarks.
+7. Add the composite index and repeat the relevant tests.
+8. Check the table's indexes and storage values.
+
+## Observation
+
+Before indexing, queries generally use full table scans. The single-column index improves searches on `Train_No`, while the composite index improves searches that use `Train_No`, `Journey_Date`, and `Class_Type` in index order. A query that skips the left-most composite-index column cannot use the index effectively.
+
+## Result
+
+The experiment successfully generated 10,000 railway booking records and demonstrated query-plan and benchmark changes before and after creating single-column and composite indexes.
+
+## Conclusion
+
+Indexes can significantly reduce the number of rows scanned by frequently used queries. However, indexes consume additional storage and require maintenance. Composite indexes are most useful when queries follow the index's left-most column prefix.

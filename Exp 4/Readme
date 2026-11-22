@@ -1,0 +1,205 @@
+# Experiment 4: Joins, Subqueries, Set Operations, and Execution Plans
+
+## Aim
+
+To use advanced SQL operations, including joins, subqueries, set-operation simulations, and `EXPLAIN`, on an employee database and analyze how SQL queries retrieve and combine related data.
+
+## Software Required
+
+- MySQL Server
+- MySQL Workbench or another SQL client
+
+## Description
+
+This experiment uses the `CompanyDB_Exp04` database containing three related tables:
+
+| Table | Description |
+|---|---|
+| `Department` | Stores department information |
+| `Project` | Stores project information and department assignments |
+| `Employee` | Stores employee names, salaries, cities, departments, and projects |
+
+The database contains:
+
+- 5 departments
+- 8 projects
+- 30 employees
+
+## Objectives
+
+- Demonstrate inner, left, self, and multi-table joins
+- Write correlated subqueries
+- Use the `EXISTS` predicate
+- Simulate `INTERSECT` and `EXCEPT` operations
+- Analyze query execution plans using `EXPLAIN`
+
+## Table Structure
+
+### Department
+
+| Column | Data Type | Constraint |
+|---|---|---|
+| `dept_id` | INT | Primary key |
+| `dept_name` | VARCHAR(50) | NOT NULL |
+
+### Project
+
+| Column | Data Type | Constraint |
+|---|---|---|
+| `project_id` | INT | Primary key |
+| `project_name` | VARCHAR(50) | NOT NULL |
+| `dept_id` | INT | Foreign key referencing `Department` |
+
+### Employee
+
+| Column | Data Type | Constraint |
+|---|---|---|
+| `emp_id` | INT | Primary key |
+| `emp_name` | VARCHAR(50) | NOT NULL |
+| `dept_id` | INT | Foreign key referencing `Department` |
+| `project_id` | INT | Foreign key referencing `Project` |
+| `salary` | DECIMAL(10,2) | NOT NULL |
+| `city` | VARCHAR(50) | NOT NULL |
+
+## SQL Operations
+
+### 1. Inner Join
+
+Retrieve employees together with their department names.
+
+```sql
+SELECT E.emp_id, E.emp_name, D.dept_name
+FROM Employee E
+INNER JOIN Department D
+    ON E.dept_id = D.dept_id;
+```
+
+### 2. Left Join
+
+Retrieve all departments, including departments that may not have matching employees.
+
+```sql
+SELECT D.dept_id, D.dept_name, E.emp_name
+FROM Department D
+LEFT JOIN Employee E
+    ON D.dept_id = E.dept_id;
+```
+
+### 3. Self-Join
+
+Pair distinct employees who belong to the same department.
+
+```sql
+SELECT E1.emp_name AS Employee1,
+       E2.emp_name AS Employee2,
+       E1.dept_id
+FROM Employee E1
+INNER JOIN Employee E2
+    ON E1.dept_id = E2.dept_id
+   AND E1.emp_id < E2.emp_id;
+```
+
+### 4. Three-Table Join
+
+Retrieve employee, project, and department details in one result.
+
+```sql
+SELECT E.emp_name, P.project_name, D.dept_name
+FROM Employee E
+INNER JOIN Project P
+    ON E.project_id = P.project_id
+INNER JOIN Department D
+    ON E.dept_id = D.dept_id;
+```
+
+### 5. Correlated Subquery
+
+Retrieve employees earning more than the average salary of their own department.
+
+```sql
+SELECT E.emp_name, E.dept_id, E.salary
+FROM Employee E
+WHERE E.salary >
+      (SELECT AVG(E2.salary)
+       FROM Employee E2
+       WHERE E2.dept_id = E.dept_id);
+```
+
+### 6. EXISTS Predicate
+
+Retrieve employees whose department has at least one assigned project.
+
+```sql
+SELECT E.emp_id, E.emp_name, E.dept_id
+FROM Employee E
+WHERE EXISTS
+      (SELECT 1
+       FROM Project P
+       WHERE P.dept_id = E.dept_id);
+```
+
+### 7. Simulated INTERSECT
+
+Retrieve employees who live in Delhi and earn more than 60000.
+
+```sql
+SELECT emp_name
+FROM Employee
+WHERE emp_id IN
+      (SELECT emp_id
+       FROM Employee
+       WHERE city = 'Delhi')
+  AND emp_id IN
+      (SELECT emp_id
+       FROM Employee
+       WHERE salary > 60000);
+```
+
+### 8. Simulated EXCEPT
+
+Retrieve employees who do not live in Delhi.
+
+```sql
+SELECT emp_name
+FROM Employee
+WHERE emp_id NOT IN
+      (SELECT emp_id
+       FROM Employee
+       WHERE city = 'Delhi');
+```
+
+MySQL 8.0.31 and later may support native `INTERSECT` and `EXCEPT` syntax, but the nested `IN` and `NOT IN` queries provide a version-independent simulation.
+
+## Execution Plan Analysis
+
+Use `EXPLAIN` before a join or subquery to view MySQL's execution plan.
+
+```sql
+EXPLAIN
+SELECT E.emp_name, D.dept_name
+FROM Employee E
+INNER JOIN Department D
+    ON E.dept_id = D.dept_id;
+```
+
+Execution plans help identify table access methods, join order, estimated rows, key usage, and possible performance concerns.
+
+## How to Run
+
+1. Open MySQL Workbench.
+2. Open `Exp 4.sql`.
+3. Execute the complete script.
+4. Select the `CompanyDB_Exp04` database.
+5. Run the join, subquery, set-operation, and `EXPLAIN` sections separately.
+
+## Observation
+
+Joins combine information from related tables. A correlated subquery executes according to each employee row. `EXISTS` checks whether at least one matching project exists. Set operations can be simulated using `IN` and `NOT IN` in MySQL versions without native support.
+
+## Result
+
+The experiment successfully demonstrated inner joins, left joins, a self-join, a three-table join, correlated subqueries, `EXISTS`, simulated `INTERSECT` and `EXCEPT`, and execution-plan analysis.
+
+## Conclusion
+
+Advanced SQL techniques enable data retrieval across multiple tables and support efficient filtering and comparison of datasets. `EXPLAIN` provides useful information for understanding and improving query performance.

@@ -1,0 +1,212 @@
+# Experiment 8: SQL Transactions and Failure Handling
+
+## Aim
+
+To demonstrate SQL transaction control using `COMMIT`, `ROLLBACK`, savepoints, and a stored procedure that safely transfers money between bank accounts.
+
+## Software Required
+
+- MySQL Server
+- MySQL Workbench or another SQL client
+
+## Description
+
+This experiment uses the `BankDB_Exp08` database and two InnoDB tables:
+
+| Table | Description |
+|---|---|
+| `Account` | Stores account numbers, holder names, and balances |
+| `Txn_Log` | Records the source account, destination account, amount, and transaction time |
+
+The database initially contains three accounts:
+
+| Account Number | Holder | Initial Balance |
+|---|---|---:|
+| 101 | Amit | 10000.00 |
+| 102 | Neha | 5000.00 |
+| 103 | Ravi | 2000.00 |
+
+InnoDB is used because it supports transactions and rollback operations.
+
+## Objectives
+
+- Demonstrate the effect of `COMMIT`
+- Demonstrate the effect of `ROLLBACK`
+- Use `SAVEPOINT` to undo part of a transaction
+- Create a stored procedure for money transfer
+- Handle exceptions and automatically roll back failed transactions
+- Record successful transfers in a transaction log
+- Check the MySQL transaction isolation level
+
+## Table Structure
+
+### Account
+
+| Column | Data Type | Constraint |
+|---|---|---|
+| `Acc_No` | INT | Primary key |
+| `Holder_Name` | VARCHAR(50) | NOT NULL |
+| `Balance` | DECIMAL(12,2) | NOT NULL; balance must be non-negative |
+
+The table uses InnoDB storage:
+
+```sql
+CONSTRAINT chk_balance CHECK (Balance >= 0)
+```
+
+### Txn_Log
+
+| Column | Data Type | Constraint |
+|---|---|---|
+| `Txn_ID` | INT | Primary key, AUTO_INCREMENT |
+| `From_Acc` | INT | Source account |
+| `To_Acc` | INT | Destination account |
+| `Amount` | DECIMAL(12,2) | Transfer amount |
+| `Txn_Time` | TIMESTAMP | Defaults to `CURRENT_TIMESTAMP` |
+
+## COMMIT Demonstration
+
+The following transaction debits account 101 and credits account 102:
+
+```sql
+BEGIN;
+UPDATE Account
+SET Balance = Balance - 2000
+WHERE Acc_No = 101;
+
+UPDATE Account
+SET Balance = Balance + 2000
+WHERE Acc_No = 102;
+
+INSERT INTO Txn_Log (From_Acc, To_Acc, Amount)
+VALUES (101, 102, 2000.00);
+
+COMMIT;
+```
+
+After the commit:
+
+- Account 101 has 8000
+- Account 102 has 7000
+- A transfer record is stored in `Txn_Log`
+
+`COMMIT` permanently saves all changes made during the transaction.
+
+## ROLLBACK Demonstration
+
+The following transfer is canceled using `ROLLBACK`:
+
+```sql
+START TRANSACTION;
+
+UPDATE Account
+SET Balance = Balance - 1000
+WHERE Acc_No = 101;
+
+UPDATE Account
+SET Balance = Balance + 1000
+WHERE Acc_No = 102;
+
+ROLLBACK;
+```
+
+Inside the transaction, the temporary balances are 7000 and 8000. After rollback, the balances return to 8000 and 7000.
+
+## SAVEPOINT Demonstration
+
+A savepoint allows part of a transaction to be undone while retaining earlier changes.
+
+```sql
+START TRANSACTION;
+
+UPDATE Account
+SET Balance = Balance - 500
+WHERE Acc_No = 101;
+
+SAVEPOINT after_debit;
+
+UPDATE Account
+SET Balance = Balance + 500
+WHERE Acc_No = 102;
+
+ROLLBACK TO SAVEPOINT after_debit;
+
+UPDATE Account
+SET Balance = Balance + 500
+WHERE Acc_No = 103;
+
+COMMIT;
+```
+
+The credit to account 102 is undone, and the credit to account 103 is committed instead. The resulting balances are:
+
+- Account 101: 7500
+- Account 102: 7000
+- Account 103: 2500
+
+## Safe Transfer Stored Procedure
+
+The `safe_transfer` procedure performs a debit, credit, and transaction-log insertion.
+
+```sql
+CREATE PROCEDURE safe_transfer(
+    IN p_from INT,
+    IN p_to INT,
+    IN p_amt DECIMAL(12,2)
+)
+```
+
+An `SQLEXCEPTION` handler rolls back the entire transaction and displays a failure message:
+
+```sql
+DECLARE EXIT HANDLER FOR SQLEXCEPTION
+BEGIN
+    ROLLBACK;
+    SELECT 'Transaction failed - rolled back' AS Status;
+END;
+```
+
+For a successful transfer:
+
+```sql
+CALL safe_transfer(102, 103, 1000.00);
+```
+
+For a failed transfer:
+
+```sql
+CALL safe_transfer(103, 101, 99999.00);
+```
+
+The failed operation attempts to reduce account 103 below zero, violating the `CHECK (Balance >= 0)` constraint. The exception handler rolls back the debit, credit, and transaction-log changes.
+
+## Transaction Isolation
+
+Display the current MySQL transaction isolation level:
+
+```sql
+SELECT @@transaction_isolation;
+```
+
+The isolation level controls how concurrent transactions observe and interact with uncommitted changes.
+
+## How to Run
+
+1. Open MySQL Workbench.
+2. Open `Exp 8.sql`.
+3. Execute the script or run each section separately.
+4. Inspect `Account` after each commit or rollback.
+5. Inspect `Txn_Log` after successful transfers.
+6. Execute both the successful and failed procedure calls.
+
+## Observation
+
+`COMMIT` permanently saves the balance updates and transaction-log entry. `ROLLBACK` restores the original account balances. A savepoint allows only the changes made after that savepoint to be reversed. The procedure's exception handler prevents partial updates when an operation fails.
+
+## Result
+
+The experiment demonstrated successful committed transfers, canceled transactions, partial rollback using savepoints, and automatic rollback after a constraint violation. The successful transfer was recorded in `Txn_Log`, while the failed transfer produced no balance or log changes.
+
+## Conclusion
+
+SQL transactions preserve data consistency by grouping multiple operations into one logical unit. `COMMIT` makes changes permanent, `ROLLBACK` cancels changes, savepoints allow partial rollback, and exception handlers provide safe failure recovery.

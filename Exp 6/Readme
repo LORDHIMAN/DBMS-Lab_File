@@ -1,0 +1,212 @@
+# Experiment 6: Stored Procedures, Validation Triggers, and Audit Logging
+
+## Aim
+
+To create a stored procedure for transferring employees between departments and to implement triggers for salary validation and automatic audit logging.
+
+## Software Required
+
+- MySQL Server
+- MySQL Workbench or another SQL client
+
+## Description
+
+This experiment uses the `CompanyDB_Exp06` database. It demonstrates stored procedures, MySQL triggers, custom SQLSTATE errors, and audit logging.
+
+The database initially contains:
+
+- 2 departments
+- 1 employee named Alex
+- An empty salary audit table
+
+## Objectives
+
+- Create a stored procedure with input parameters
+- Validate employee and department records
+- Raise custom SQL errors using `SIGNAL`
+- Prevent negative salary updates
+- Record salary changes in an audit table
+- Test successful operations and edge cases
+
+## Table Structure
+
+### Department
+
+| Column | Data Type | Constraint |
+|---|---|---|
+| `Dept_ID` | INT | Primary key |
+| `Dept_Name` | VARCHAR(100) | NOT NULL |
+
+### Employee
+
+| Column | Data Type | Constraint |
+|---|---|---|
+| `Emp_ID` | INT | Primary key |
+| `Emp_Name` | VARCHAR(100) | NOT NULL |
+| `Salary` | DECIMAL(10,2) | NOT NULL |
+| `Dept_ID` | INT | Foreign key referencing `Department` |
+
+### Salary_Audit
+
+| Column | Data Type | Constraint |
+|---|---|---|
+| `Audit_ID` | INT | Primary key, AUTO_INCREMENT |
+| `Emp_ID` | INT | NOT NULL |
+| `Old_Salary` | DECIMAL(10,2) | NOT NULL |
+| `New_Salary` | DECIMAL(10,2) | NOT NULL |
+| `Changed_At` | TIMESTAMP | Defaults to `CURRENT_TIMESTAMP` |
+
+## Stored Procedure
+
+The `transfer_employee` procedure accepts an employee ID and a target department ID.
+
+```sql
+CALL transfer_employee(p_emp_id, p_new_dept_id);
+```
+
+The procedure performs two validations:
+
+1. It checks whether the employee exists.
+2. It checks whether the target department exists.
+
+If either validation fails, MySQL raises a custom SQLSTATE `45000` error. Otherwise, the procedure updates the employee's department.
+
+Example:
+
+```sql
+CALL transfer_employee(1, 2);
+```
+
+This transfers employee 1 from department 1 to department 2.
+
+## Salary Validation Trigger
+
+The `before_employee_salary_update` trigger executes before an employee salary is updated.
+
+```sql
+CREATE TRIGGER before_employee_salary_update
+BEFORE UPDATE ON Employee
+FOR EACH ROW
+BEGIN
+    IF NEW.Salary < 0 THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Salary cannot be negative';
+    END IF;
+END;
+```
+
+This trigger rejects negative salary values before the update is applied.
+
+## Salary Audit Trigger
+
+The `after_employee_salary_update` trigger executes after an employee record is updated. It adds an audit entry only if the salary has changed.
+
+```sql
+CREATE TRIGGER after_employee_salary_update
+AFTER UPDATE ON Employee
+FOR EACH ROW
+BEGIN
+    IF OLD.Salary <> NEW.Salary THEN
+        INSERT INTO Salary_Audit (Emp_ID, Old_Salary, New_Salary)
+        VALUES (OLD.Emp_ID, OLD.Salary, NEW.Salary);
+    END IF;
+END;
+```
+
+## Demonstration
+
+### Initial State
+
+Employee 1, Alex, initially belongs to the Sales department with a salary of 60000.
+
+### Department Transfer
+
+```sql
+CALL transfer_employee(1, 2);
+SELECT * FROM Employee WHERE Emp_ID = 1;
+```
+
+### Salary Update
+
+```sql
+UPDATE Employee
+SET Salary = 65000.00
+WHERE Emp_ID = 1;
+```
+
+The audit trigger automatically inserts the old and new salary values into `Salary_Audit`.
+
+```sql
+SELECT * FROM Salary_Audit;
+```
+
+## Edge Case Testing
+
+The following tests raise custom SQLSTATE `45000` errors:
+
+### Non-existent Employee
+
+```sql
+CALL transfer_employee(999, 2);
+```
+
+Expected result:
+
+```text
+ERROR 1644 (45000): Employee does not exist
+```
+
+### Non-existent Department
+
+```sql
+CALL transfer_employee(1, 999);
+```
+
+Expected result:
+
+```text
+ERROR 1644 (45000): Department does not exist
+```
+
+### Negative Salary
+
+```sql
+UPDATE Employee
+SET Salary = -5000.00
+WHERE Emp_ID = 1;
+```
+
+Expected result:
+
+```text
+ERROR 1644 (45000): Salary cannot be negative
+```
+
+Run edge-case blocks individually because each error stops execution.
+
+## DELIMITER
+
+`DELIMITER` is a MySQL client-side instruction used before defining procedures and triggers. It temporarily changes the statement terminator from `;` to `$$`, allowing internal semicolons to remain part of the procedure or trigger definition.
+
+After the definition, `DELIMITER` is reset to `;`.
+
+## How to Run
+
+1. Open MySQL Workbench.
+2. Open `Exp 6.sql`.
+3. Execute the complete script.
+4. Verify the `CompanyDB_Exp06` database.
+5. Run the department transfer and salary update operations.
+6. Execute the commented edge-case tests one at a time.
+
+## Observation
+
+The procedure successfully validated the employee and target department before changing the department. The validation trigger prevented negative salaries. The audit trigger recorded only actual salary changes, not department-only updates.
+
+## Result
+
+The transfer procedure, salary validation trigger, and audit trigger were created and tested successfully. Valid operations completed without error, while invalid employee, department, and salary cases produced custom error messages.
+
+## Conclusion
+
+Stored procedures centralize database operations and validation logic, while triggers automatically enforce rules and maintain audit records. This experiment demonstrated reliable database automation and controlled error handling.

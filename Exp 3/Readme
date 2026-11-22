@@ -1,0 +1,152 @@
+# Experiment 3: SQL Selection, Projection, Aggregation, and Sorting
+
+## Aim
+
+To create and manipulate an employee management database using SQL commands and to demonstrate selection, projection, aggregation, grouping, filtering, conditional categorization, and sorting.
+
+## Software Required
+
+- MySQL Server
+- MySQL Workbench or another SQL client
+
+## Description
+
+This experiment creates a `CompanyDB_Exp03` database containing three related tables:
+
+| Table | Description |
+|---|---|
+| `Department` | Stores department ID and department name |
+| `Project` | Stores project details and the associated department |
+| `Employee` | Stores employee details, salary, city, department, and project |
+
+The database contains:
+
+- 5 departments
+- 8 projects
+- 30 employees
+
+Foreign keys maintain the relationships among employees, departments, and projects.
+
+## Objectives
+
+- Apply selection using the `WHERE` clause
+- Retrieve selected columns using projection
+- Calculate aggregate values using `AVG()`, `COUNT()`, and `GROUP BY`
+- Filter grouped records using `HAVING`
+- Categorize data using a `CASE` expression
+- Sort query results using `ORDER BY`
+
+## Table Structure
+
+### Department
+
+| Column | Data Type | Constraint |
+|---|---|---|
+| `dept_id` | INT | Primary key |
+| `dept_name` | VARCHAR(50) | NOT NULL |
+
+### Project
+
+| Column | Data Type | Constraint |
+|---|---|---|
+| `project_id` | INT | Primary key |
+| `project_name` | VARCHAR(50) | NOT NULL |
+| `dept_id` | INT | Foreign key referencing `Department` |
+
+### Employee
+
+| Column | Data Type | Constraint |
+|---|---|---|
+| `emp_id` | INT | Primary key |
+| `emp_name` | VARCHAR(50) | NOT NULL |
+| `dept_id` | INT | Foreign key referencing `Department` |
+| `project_id` | INT | Foreign key referencing `Project` |
+| `salary` | DECIMAL(10,2) | NOT NULL |
+| `city` | VARCHAR(50) | NOT NULL |
+
+## SQL Queries
+
+### 1. Selection
+
+Display all employees whose city is Delhi.
+
+```sql
+SELECT *
+FROM Employee
+WHERE city = 'Delhi';
+```
+
+### 2. Projection
+
+Display only employee names and salaries.
+
+```sql
+SELECT emp_name, salary
+FROM Employee;
+```
+
+### 3. Average Salary by Department
+
+Calculate the average salary for each department.
+
+```sql
+SELECT dept_id, AVG(salary) AS avg_salary
+FROM Employee
+GROUP BY dept_id;
+```
+
+### 4. Departments with More Than Five Employees
+
+Use `HAVING` to filter aggregate results.
+
+```sql
+SELECT dept_id, COUNT(*) AS num_employees
+FROM Employee
+GROUP BY dept_id
+HAVING COUNT(*) > 5;
+```
+
+### 5. Salary Categorization
+
+Categorize salaries as Low, Medium, or High.
+
+```sql
+SELECT emp_name,
+       salary,
+       CASE
+           WHEN salary < 50000 THEN 'Low'
+           WHEN salary BETWEEN 50000 AND 60000 THEN 'Medium'
+           ELSE 'High'
+       END AS salary_category
+FROM Employee;
+```
+
+### 6. Sorting by Salary
+
+Display employees from the highest salary to the lowest salary.
+
+```sql
+SELECT emp_name, dept_id, salary
+FROM Employee
+ORDER BY salary DESC;
+```
+
+## How to Run
+
+1. Open MySQL Workbench.
+2. Open `Exp 3.sql`.
+3. Execute the complete script.
+4. Check the `CompanyDB_Exp03` database and its tables.
+5. Run each query section to view the results.
+
+## Observation
+
+The experiment demonstrates how SQL retrieves and processes data efficiently. `WHERE` filters individual rows, `GROUP BY` creates groups for aggregate calculations, `HAVING` filters grouped results, `CASE` assigns categories, and `ORDER BY` controls result order.
+
+## Result
+
+A database with 5 departments, 8 projects, and 30 employees was successfully created. Selection, projection, aggregation, grouping, conditional categorization, and sorting queries were executed successfully.
+
+## Conclusion
+
+SQL operators and clauses allow structured retrieval, grouping, aggregation, and presentation of relational data. The experiment provided practical experience with data filtering and analytical query operations.
